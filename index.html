@@ -33,8 +33,84 @@
     </script>
   </head>
   <body class="font-display">
-    <h1 class="text-white text-4xl font-bold p-5">Le système solaire</h1>
+    <div class="text-blue-500 absolute inset-y-1/3 left-10">
+      <h1 class="text-8xl font-bold p-5"><span>Earth</span></h1>
+      <p class="text-white px-5">Hold right click to rotate the earth</p>
+      <p class="text-white px-5">Hold left click to rotate around the earth</p>
+      <button id="align-earth" class="font-bold bg-white p-3 m-5 rounded-xl" class="align-planet">Center the planet</button>
+    </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script type="x-shader/x-vertex" id="skySphereVertexShader">
+      varying vec2 vUv;
+      varying vec3 vNormal;
+    
+      void main(){
+          vUv = uv;
+          vNormal = normalMatrix * normal;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="skySphereFragmentShader">
+      uniform sampler2D skyTexture;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+
+      void main() {
+          vec3 skyColor = texture2D(skyTexture, vUv).xyz;
+
+          gl_FragColor = vec4(skyColor, 1);
+      }
+    </script>
+    <script type="x-shader/x-vertex" id="earthVertexShader">
+      uniform vec3 lightDirection;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vLight;
+    
+      void main(){
+          vUv = uv;
+          vNormal = normalMatrix * normal;
+          vLight = mat3(viewMatrix) * lightDirection;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="earthFragmentShader">
+      uniform sampler2D dayTexture;
+      uniform sampler2D nightTexture;
+      uniform sampler2D cloudsTexture;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vLight;
+
+      void main() {
+          vec3 dayColor = texture2D(dayTexture, vUv).xyz;
+          vec3 nightColor = texture2D(nightTexture, vUv).xyz;
+          vec3 cloudsColor = texture2D(cloudsTexture, vUv).xyz;
+
+          float cosineAngleSunToNormal = dot(normalize(vNormal), normalize(vLight));
+          cosineAngleSunToNormal = clamp(cosineAngleSunToNormal * 3.0, -1.0, 1.0);
+          float mixAmount = cosineAngleSunToNormal * 0.5 + 0.5;
+					vec3 color = mix(nightColor, dayColor, mixAmount);
+
+          gl_FragColor = vec4(color + (cloudsColor * 0.5), 1);
+      }
+    </script>
+    <script type="x-shader/x-vertex" id="atmosphereVertexShader">
+      varying vec3 vNormal;
+    
+      void main(){
+          vNormal = normalMatrix * normal;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="atmosphereFragmentShader">
+      varying vec3 vNormal;
+
+      void main() {
+          float intensity = pow(0.3 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+          gl_FragColor = vec4(vec3(0.3, 0.6, 1.0), 1) * intensity;
+      }
+    </script>
     <script type="module" src="index.js"></script>
   </body>
 </html>

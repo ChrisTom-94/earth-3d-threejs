@@ -2,115 +2,114 @@ import * as THREE from 'https://cdn.skypack.dev/pin/three@v0.135.0-pjGUcRG9Xt70O
 import { OrbitControls } from 'https://cdn.skypack.dev/three@v0.135.0-pjGUcRG9Xt70OdXl97VF/examples/jsm/controls/OrbitControls.js';
 import * as dat from './lib/dat.gui.module.js';
 
-const baseAPI = "https://api.le-systeme-solaire.net/rest/";
-
-// To load texture for 3D objects
+// loader for texture for 3D objects
 const texturesLoader = new THREE.TextureLoader();
 
 // Set up gui controller
 const gui = new dat.GUI();
+const sunLightFolder = gui.addFolder("Main Light");
+const earthFolder = gui.addFolder("Earth");
 const cameraFolder = gui.addFolder("Camera");
-const sunFolder = gui.addFolder("Sun");
-const planetsParentFolder = gui.addFolder("Planets");
 
-// Set up renderer 
-const renderer = new THREE.WebGLRenderer();
 
-// Set up camera and orbit controls
+// Set up renderer
+const renderer = new THREE.WebGLRenderer({alpha: true, antialias: true, stencil: false});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener( 'resize', onWindowResize, false );
+function onWindowResize(){
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize( window.innerWidth, window.innerHeight );
+}
+
+let isRotating = false;
+window.addEventListener("mousemove", rotate, false);
+function rotate(e){
+    if(e.buttons !== 2) {
+        isRotating = false;
+        return;
+    }
+    isRotating = true;
+    if(e.movementX < 0) earth.rotation.y -= 0.01;
+    else if(e.movementX > 0) earth.rotation.y += 0.01;
+}
+
+// Set up camera
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
 const controls = new OrbitControls( camera, renderer.domElement );
-camera.position.z = 10;
+camera.position.z = 120;
 controls.update();
-const cameraXFolderController = cameraFolder.add(camera.position, 'x', -200, 200, 1)
-const cameraYFolderController = cameraFolder.add(camera.position, 'y', -200, 200, 1)
-const cameraZFolderController = cameraFolder.add(camera.position, 'z', -200, 200, 1)
-controls.addEventListener("change", () => {
-    cameraXFolderController.updateDisplay();
-    cameraYFolderController.updateDisplay();
-    cameraZFolderController.updateDisplay();
-})
+controls.minDistance = 40;
+controls.maxDistance = 150;
+controls.enablePan = false;
+controls.target = new THREE.Vector3(-45, 0, 0)
 
-// Set up scene and background
+// Set up scene and scene background
 const scene = new THREE.Scene();
 const textureScene = texturesLoader.load( './assets/textures/background.jpg' );
 textureScene.wrapS = THREE.EquirectangularReflectionMapping;
 scene.background = textureScene;
 
-// Set up sun 
-let sun = new THREE.Mesh();
-let sunLight = new THREE.PointLight( 0xffffff, 1, 600 );
-sunLight.power = 10.5;
-sunFolder.add(sunLight, "intensity", 0, 10, 0.2);
-let starsParent = [];
-
-if(localStorage.getItem("sun") && localStorage.getItem("stars")){
-    const sunData = JSON.parse(localStorage.getItem("sun"));
-    sun = (await generateStar(sunData)).clone(true);
-    scene.add(sun);
-
-    const stars = JSON.parse(localStorage.getItem("stars"));
-    generateStars(stars);
-}else{
-    (async function(){
-        const querySun = await fetch(baseAPI+"bodies?filter[]=englishName,eq,sun&data=englishName,equaRadius");
-        const dataSun = await querySun.json();
-        const {bodies: [sunData]} = dataSun;
-        localStorage.setItem("sun", JSON.stringify(sunData));
-        sun = (await generateStar(sunData)).clone(true);
-        scene.add(sun);
-
-        const queryStars = await fetch(baseAPI+"bodies?filter[]=isPlanet,neq,true&data=englishName,equaRadius,perihelion,aphelion");
-        const dataStars = await queryStars.json();
-        const {bodies: [...stars]} = dataStars;
-        localStorage.setItem("stars", JSON.stringify(stars));
-        generateStars(stars);
-    })();
-}
-
-scene.add(sun);
-sun.material.emissive = 0xffffff;
+// Set up sun light
+let sunLight = new THREE.DirectionalLight(0xffffff, 2);
+sunLight.position.z = 120;
+sunLightFolder.add(sunLight, "intensity", 0, 10, 0.2);
+generateXYZFolder(sunLightFolder, sunLight.position, "position");
 scene.add(sunLight);
 
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+// Set up earth
+const geometry = new THREE.SphereGeometry( 30, 256, 256 );
+const material = new THREE.ShaderMaterial({
+    vertexShader: document.getElementById("earthVertexShader").textContent,
+    fragmentShader: document.getElementById("earthFragmentShader").textContent,
+    uniforms: {
+        dayTexture: { type: 't', value: texturesLoader.load( './assets/textures/earth_daymap.jpg' ) },
+        nightTexture: { type: 't', value: texturesLoader.load( './assets/textures/earth_nightmap.jpg' ) },
+        cloudsTexture: { type: 't', value: texturesLoader.load( './assets/textures/earth_clouds.jpg' ) },
+        lightDirection: {type: "v3f", value: new THREE.Vector3(-3.0, 0.0, 0.0)}
+    }
+});
+const earth = new THREE.Mesh(geometry, material);
+earth.name = "earth";
+scene.add(earth);
+
+// atmosphere
+const atmosphereGeometry = new THREE.SphereGeometry( 35, 256, 256 );
+const atmosphereMaterial = new THREE.ShaderMaterial({
+    vertexShader: document.getElementById("atmosphereVertexShader").textContent,
+    fragmentShader: document.getElementById("atmosphereFragmentShader").textContent,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide
+});
+const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+scene.add(atmosphere);
 
 (function animate() {
 	requestAnimationFrame(animate);
     controls.update();
 	renderer.render(scene, camera);
+    atmosphere.rotation.y += 0.0002;
+    atmosphere.rotation.z += 0.0002;
+    if(!isRotating){
+        earth.rotation.y += 0.0001;
+    }
+    earth.material.uniforms.lightDirection.value = (new THREE.Vector3()).subVectors(sunLight.position, earth.position)
 })();
 
-async function generateStar(starData){
-    const name = starData.englishName.split(' ').pop().toLowerCase();
-    const radius = starData.equaRadius / 10000;
-    const geometry = new THREE.SphereGeometry( radius, 16, 16 );
-    const texture = texturesLoader.load("./assets/textures/"+name+".jpg");
-    const material = new THREE.MeshLambertMaterial({map: texture});
-    const star = new THREE.Mesh(geometry, material);
-    star.name = name;
-    return star;
-}
-
-async function generateStars(stars){
-    for (const starData of stars) {
-        const star = await generateStar(starData);
-        const starParent = new THREE.Object3D();
-        const starFolder = await planetsParentFolder.addFolder(star.name);
-
-        starFolder.domElement.classList.add("capitalize");
-        await generateXYZFolder(starFolder, star.rotation, 'rotation');
-
-        starParent.name = star.name+"-parent";
-        starParent.add(star);
-        starsParent = [...starsParent, starParent];
-
-        star.position.x = ((starData.perihelion + starData.aphelion) / 2 ) / 10000000;
-        
-        scene.add(starParent);
+const alignEarthButton = document.getElementById("align-earth")
+alignEarthButton.addEventListener("click", () => {
+    if(alignEarthButton.textContent === "Center the planet") {
+        controls.target = new THREE.Vector3(0,0,0)
+        alignEarthButton.textContent = "Restore"
+        return
     }
-}
+    controls.target = new THREE.Vector3(-45, 0, 0);
+    alignEarthButton.textContent = "Center the planet"
+})
 
-function generateXYZFolder(parentFolder, object, prop, min, max, step){
+function generateXYZFolder(parentFolder, object, prop, min = -100, max = 100, step = 2){
     const folder = parentFolder.addFolder(prop);
     const xController = folder.add(object, "x", min, max, step);
     const yController = folder.add(object, "y", min, max, step);
@@ -120,4 +119,5 @@ function generateXYZFolder(parentFolder, object, prop, min, max, step){
         yController.updateDisplay();
         zController.updateDisplay();
     });
+    return folder;
 }
